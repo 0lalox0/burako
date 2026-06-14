@@ -1,0 +1,1068 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Burako Tracker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+    .tab-active { @apply border-b-2 border-emerald-400 text-emerald-400; }
+  </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen font-sans antialiased">
+
+<div x-data="app()" x-init="init()" x-cloak>
+
+  <!-- Header -->
+  <header class="bg-gray-900 border-b border-gray-800 sticky top-0 z-10">
+    <div class="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
+      <div>
+        <h1 class="text-lg font-bold tracking-tight">🃏 Burako Tracker</h1>
+        <p class="text-xs text-gray-400" x-text="activeSeason ? activeSeason.name : 'Sin temporada activa'"></p>
+      </div>
+      <span
+        x-show="activeSeason"
+        class="text-xs bg-emerald-900 text-emerald-300 px-2 py-1 rounded-full font-medium">
+        Temporada activa
+      </span>
+    </div>
+
+    <!-- Tabs -->
+    <div class="max-w-2xl mx-auto px-4 flex gap-1 overflow-x-auto">
+      <template x-for="tab in tabs" :key="tab.id">
+        <button
+          @click="currentTab = tab.id"
+          :class="currentTab === tab.id ? 'border-b-2 border-emerald-400 text-emerald-400' : 'text-gray-400 hover:text-gray-200'"
+          class="px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors"
+          x-text="tab.label">
+        </button>
+      </template>
+    </div>
+  </header>
+
+  <!-- Loading -->
+  <div x-show="loading" class="max-w-2xl mx-auto px-4 py-16 text-center text-gray-500">
+    <div class="animate-pulse text-4xl mb-3">🃏</div>
+    <p class="text-sm">Cargando...</p>
+  </div>
+
+  <!-- Error de config -->
+  <div x-show="!loading && configError" class="max-w-2xl mx-auto px-4 py-8">
+    <div class="bg-red-900/40 border border-red-700 rounded-xl p-6 text-center">
+      <p class="text-red-300 font-semibold mb-2">⚠️ Falta configurar Supabase</p>
+      <p class="text-sm text-red-400">Editá las variables <code class="bg-red-950 px-1 rounded">SUPABASE_URL</code> y <code class="bg-red-950 px-1 rounded">SUPABASE_ANON_KEY</code> al inicio del script.</p>
+    </div>
+  </div>
+
+  <main x-show="!loading && !configError" class="max-w-2xl mx-auto px-4 py-6 space-y-4">
+
+    <!-- ══════════════════════════════ INICIO ══════════════════════════════ -->
+    <div x-show="currentTab === 'inicio'" class="space-y-4">
+
+      <!-- Sin temporada activa -->
+      <div x-show="!activeSeason" class="bg-gray-900 border border-gray-800 rounded-xl p-8 text-center">
+        <p class="text-gray-400 mb-4">No hay ninguna temporada activa.</p>
+        <button @click="currentTab = 'temporadas'" class="btn-primary">
+          Crear temporada
+        </button>
+      </div>
+
+      <!-- Stats de la temporada -->
+      <template x-if="activeSeason">
+        <div class="space-y-4">
+
+          <!-- Resumen rápido -->
+          <div class="grid grid-cols-3 gap-3">
+            <div class="stat-card">
+              <div class="stat-value" x-text="seasonMatches.length"></div>
+              <div class="stat-label">Partidos</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" x-text="seasonMatches.filter(m => m.mode === '1v1').length"></div>
+              <div class="stat-label">1 vs 1</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" x-text="seasonMatches.filter(m => m.mode === '2v2').length"></div>
+              <div class="stat-label">2 vs 2</div>
+            </div>
+          </div>
+
+          <!-- Podio individual -->
+          <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+            <div class="flex items-center justify-between mb-3">
+              <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wide">Ranking individual</h2>
+              <div class="flex gap-2 text-xs">
+                <button @click="sortIndividual = 'wins'" :class="sortIndividual==='wins' ? 'text-emerald-400' : 'text-gray-500'" class="font-medium">Por victorias</button>
+                <span class="text-gray-700">|</span>
+                <button @click="sortIndividual = 'pct'" :class="sortIndividual==='pct' ? 'text-emerald-400' : 'text-gray-500'" class="font-medium">Por %</button>
+              </div>
+            </div>
+            <div x-show="individualStats.length === 0" class="text-gray-500 text-sm text-center py-4">
+              Aún no hay partidos en esta temporada.
+            </div>
+            <div class="space-y-2">
+              <template x-for="(s, i) in sortedIndividual" :key="s.player_id">
+                <div class="flex items-center gap-3 py-2 border-b border-gray-800 last:border-0">
+                  <span class="text-lg w-7 text-center" x-text="['🥇','🥈','🥉'][i] || (i+1)+'.'"></span>
+                  <span class="font-medium flex-1" x-text="s.name"></span>
+                  <div class="text-right">
+                    <div class="text-sm font-bold" x-text="s.wins + 'W / ' + s.losses + 'L'"></div>
+                    <div class="text-xs text-emerald-400" x-text="s.winPct + '%'"></div>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- Podio parejas -->
+          <div x-show="pairStats.length > 0" class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+            <div class="flex items-center justify-between mb-3">
+              <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wide">Mejores parejas (2v2)</h2>
+              <div class="flex gap-2 text-xs">
+                <button @click="sortPairs = 'wins'" :class="sortPairs==='wins' ? 'text-emerald-400' : 'text-gray-500'" class="font-medium">Por victorias</button>
+                <span class="text-gray-700">|</span>
+                <button @click="sortPairs = 'pct'" :class="sortPairs==='pct' ? 'text-emerald-400' : 'text-gray-500'" class="font-medium">Por %</button>
+              </div>
+            </div>
+            <div class="space-y-2">
+              <template x-for="(p, i) in sortedPairs" :key="p.key">
+                <div class="flex items-center gap-3 py-2 border-b border-gray-800 last:border-0">
+                  <span class="text-lg w-7 text-center" x-text="['🥇','🥈','🥉'][i] || (i+1)+'.'"></span>
+                  <span class="font-medium flex-1" x-text="p.names"></span>
+                  <div class="text-right">
+                    <div class="text-sm font-bold" x-text="p.wins + 'W / ' + p.losses + 'L'"></div>
+                    <div class="text-xs text-emerald-400" x-text="p.winPct + '%'"></div>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+        </div>
+      </template>
+    </div>
+
+    <!-- ══════════════════════════════ NUEVO PARTIDO ══════════════════════════════ -->
+    <div x-show="currentTab === 'partido'" class="space-y-4">
+
+      <div x-show="!activeSeason" class="bg-gray-900 border border-gray-800 rounded-xl p-6 text-center">
+        <p class="text-gray-400 mb-3">Necesitás una temporada activa para cargar partidos.</p>
+        <button @click="currentTab = 'temporadas'" class="btn-primary">Crear temporada</button>
+      </div>
+
+      <template x-if="activeSeason">
+        <div class="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-5">
+          <h2 class="font-semibold text-gray-200">Registrar partido</h2>
+
+          <!-- Modo -->
+          <div>
+            <label class="label">Modalidad</label>
+            <div class="grid grid-cols-2 gap-2 mt-1">
+              <button
+                @click="setMode('1v1')"
+                :class="matchForm.mode === '1v1' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-300'"
+                class="border rounded-lg py-2 text-sm font-medium transition-colors">
+                1 vs 1
+              </button>
+              <button
+                @click="setMode('2v2')"
+                :class="matchForm.mode === '2v2' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-300'"
+                class="border rounded-lg py-2 text-sm font-medium transition-colors">
+                2 vs 2
+              </button>
+            </div>
+          </div>
+
+          <!-- Equipo 1 -->
+          <div>
+            <label class="label">
+              <span x-text="matchForm.mode === '1v1' ? 'Jugador 1' : 'Equipo 1'"></span>
+            </label>
+            <div class="grid grid-cols-2 gap-2 mt-1">
+              <template x-for="p in players" :key="'t1-'+p.id">
+                <button
+                  @click="toggleTeam(1, p.id)"
+                  :disabled="isInTeam(2, p.id) || (matchForm.mode === '1v1' && matchForm.team1.length >= 1 && !isInTeam(1, p.id))"
+                  :class="isInTeam(1, p.id) ? 'bg-blue-600 border-blue-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-300 disabled:opacity-30'"
+                  class="border rounded-lg py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed"
+                  x-text="p.name">
+                </button>
+              </template>
+            </div>
+          </div>
+
+          <!-- Equipo 2 -->
+          <div>
+            <label class="label">
+              <span x-text="matchForm.mode === '1v1' ? 'Jugador 2' : 'Equipo 2'"></span>
+            </label>
+            <div class="grid grid-cols-2 gap-2 mt-1">
+              <template x-for="p in players" :key="'t2-'+p.id">
+                <button
+                  @click="toggleTeam(2, p.id)"
+                  :disabled="isInTeam(1, p.id) || (matchForm.mode === '1v1' && matchForm.team2.length >= 1 && !isInTeam(2, p.id))"
+                  :class="isInTeam(2, p.id) ? 'bg-purple-600 border-purple-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-300 disabled:opacity-30'"
+                  class="border rounded-lg py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed"
+                  x-text="p.name">
+                </button>
+              </template>
+            </div>
+          </div>
+
+          <!-- Ganador -->
+          <div x-show="matchForm.team1.length > 0 && matchForm.team2.length > 0 && matchForm.team1.length === (matchForm.mode === '1v1' ? 1 : 2) && matchForm.team2.length === (matchForm.mode === '1v1' ? 1 : 2)">
+            <label class="label">¿Quién ganó?</label>
+            <div class="grid grid-cols-2 gap-2 mt-1">
+              <button
+                @click="matchForm.winner = 1"
+                :class="matchForm.winner === 1 ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-300'"
+                class="border rounded-lg py-3 text-sm font-medium transition-colors">
+                <div x-text="teamLabel(1)" class="font-semibold"></div>
+                <div class="text-xs opacity-70 mt-0.5">Equipo 1</div>
+              </button>
+              <button
+                @click="matchForm.winner = 2"
+                :class="matchForm.winner === 2 ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-300'"
+                class="border rounded-lg py-3 text-sm font-medium transition-colors">
+                <div x-text="teamLabel(2)" class="font-semibold"></div>
+                <div class="text-xs opacity-70 mt-0.5">Equipo 2</div>
+              </button>
+            </div>
+          </div>
+
+          <!-- Guardar -->
+          <button
+            @click="saveMatch()"
+            :disabled="!canSaveMatch || saving"
+            class="w-full btn-primary disabled:opacity-40 disabled:cursor-not-allowed">
+            <span x-show="!saving">Guardar partido</span>
+            <span x-show="saving">Guardando...</span>
+          </button>
+
+          <!-- Feedback -->
+          <div x-show="matchSaved" class="text-center text-emerald-400 text-sm font-medium py-1">
+            ✓ Partido guardado
+          </div>
+          <div x-show="matchError" class="text-center text-red-400 text-sm py-1" x-text="matchError"></div>
+        </div>
+      </template>
+    </div>
+
+    <!-- ══════════════════════════════ TABLA ══════════════════════════════ -->
+    <div x-show="currentTab === 'tabla'" class="space-y-4">
+
+      <!-- Selector de temporada -->
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+        <label class="label">Ver temporada</label>
+        <select x-model="selectedSeasonId" @change="loadSeasonStats()" class="input mt-1" style="background-image: url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22><path fill=%22%239ca3af%22 d=%22M4 6l4 4 4-4%22 stroke=%22%239ca3af%22 stroke-width=%221.5%22 fill=%22none%22/></svg>'); background-repeat: no-repeat; background-position: right 0.75rem center; background-size: 1rem; padding-right: 2.5rem;">
+          <template x-for="s in seasons" :key="s.id">
+            <option :value="s.id" x-text="s.name + (s.is_active ? ' (activa)' : '')"></option>
+          </template>
+        </select>
+      </div>
+
+      <!-- Individual -->
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wide">Individual</h2>
+          <div class="flex gap-2 text-xs">
+            <button @click="sortIndividual = 'wins'" :class="sortIndividual==='wins'?'text-emerald-400':'text-gray-500'" class="font-medium">Por victorias</button>
+            <span class="text-gray-700">|</span>
+            <button @click="sortIndividual = 'pct'" :class="sortIndividual==='pct'?'text-emerald-400':'text-gray-500'" class="font-medium">Por %</button>
+          </div>
+        </div>
+        <div x-show="individualStats.length === 0" class="text-gray-500 text-sm text-center py-6">
+          Sin partidos en esta temporada.
+        </div>
+        <table x-show="individualStats.length > 0" class="w-full text-sm">
+          <thead>
+            <tr class="text-xs text-gray-500 border-b border-gray-800">
+              <th class="text-left pb-2">#</th>
+              <th class="text-left pb-2">Jugador</th>
+              <th class="text-center pb-2">V</th>
+              <th class="text-center pb-2">D</th>
+              <th class="text-center pb-2">PJ</th>
+              <th class="text-right pb-2">%</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="(s, i) in sortedIndividual" :key="s.player_id">
+              <tr class="border-b border-gray-800/50 last:border-0">
+                <td class="py-2 text-gray-500" x-text="i+1"></td>
+                <td class="py-2 font-medium" x-text="s.name"></td>
+                <td class="py-2 text-center text-emerald-400 font-semibold" x-text="s.wins"></td>
+                <td class="py-2 text-center text-red-400" x-text="s.losses"></td>
+                <td class="py-2 text-center text-gray-400" x-text="s.total"></td>
+                <td class="py-2 text-right font-semibold" x-text="s.winPct+'%'"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Parejas -->
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wide">Parejas (2v2)</h2>
+          <div class="flex gap-2 text-xs">
+            <button @click="sortPairs = 'wins'" :class="sortPairs==='wins'?'text-emerald-400':'text-gray-500'" class="font-medium">Por victorias</button>
+            <span class="text-gray-700">|</span>
+            <button @click="sortPairs = 'pct'" :class="sortPairs==='pct'?'text-emerald-400':'text-gray-500'" class="font-medium">Por %</button>
+          </div>
+        </div>
+        <div x-show="pairStats.length === 0" class="text-gray-500 text-sm text-center py-6">
+          Sin partidos 2v2 en esta temporada.
+        </div>
+        <table x-show="pairStats.length > 0" class="w-full text-sm">
+          <thead>
+            <tr class="text-xs text-gray-500 border-b border-gray-800">
+              <th class="text-left pb-2">#</th>
+              <th class="text-left pb-2">Pareja</th>
+              <th class="text-center pb-2">V</th>
+              <th class="text-center pb-2">D</th>
+              <th class="text-right pb-2">%</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="(p, i) in sortedPairs" :key="p.key">
+              <tr class="border-b border-gray-800/50 last:border-0">
+                <td class="py-2 text-gray-500" x-text="i+1"></td>
+                <td class="py-2 font-medium" x-text="p.names"></td>
+                <td class="py-2 text-center text-emerald-400 font-semibold" x-text="p.wins"></td>
+                <td class="py-2 text-center text-red-400" x-text="p.losses"></td>
+                <td class="py-2 text-right font-semibold" x-text="p.winPct+'%'"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════ PARTIDOS ══════════════════════════════ -->
+    <div x-show="currentTab === 'partidos'" class="space-y-3">
+
+      <div x-show="!activeSeason" class="bg-gray-900 border border-gray-800 rounded-xl p-6 text-center">
+        <p class="text-gray-400">No hay temporada activa.</p>
+      </div>
+
+      <div x-show="activeSeason && seasonMatches.length === 0" class="bg-gray-900 border border-gray-800 rounded-xl p-6 text-center">
+        <p class="text-gray-400 text-sm">Aún no hay partidos en esta temporada.</p>
+      </div>
+
+      <template x-for="m in seasonMatches" :key="m.id">
+        <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+
+          <!-- Fecha y modo -->
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-xs text-gray-500" x-text="formatDate(m.played_at)"></span>
+            <span
+              :class="m.mode === '1v1' ? 'bg-blue-900/50 text-blue-300' : 'bg-purple-900/50 text-purple-300'"
+              class="text-xs font-semibold px-2 py-0.5 rounded-full"
+              x-text="m.mode">
+            </span>
+          </div>
+
+          <!-- Equipos -->
+          <div class="flex items-center gap-2">
+            <!-- Equipo 1 -->
+            <div
+              :class="matchWinner(m) === 1 ? 'border-emerald-600 bg-emerald-900/20' : 'border-gray-700'"
+              class="flex-1 border rounded-lg px-3 py-2 text-center">
+              <div class="text-sm font-medium" x-text="matchTeamNames(m, 1)"></div>
+              <div x-show="matchWinner(m) === 1" class="text-xs text-emerald-400 mt-0.5">ganador</div>
+            </div>
+
+            <span class="text-gray-600 text-xs font-bold shrink-0">vs</span>
+
+            <!-- Equipo 2 -->
+            <div
+              :class="matchWinner(m) === 2 ? 'border-emerald-600 bg-emerald-900/20' : 'border-gray-700'"
+              class="flex-1 border rounded-lg px-3 py-2 text-center">
+              <div class="text-sm font-medium" x-text="matchTeamNames(m, 2)"></div>
+              <div x-show="matchWinner(m) === 2" class="text-xs text-emerald-400 mt-0.5">ganador</div>
+            </div>
+          </div>
+
+        </div>
+      </template>
+    </div>
+
+    <!-- ══════════════════════════════ EN CURSO ══════════════════════════════ -->
+    <div x-show="currentTab === 'incompletos'" class="space-y-4">
+
+      <div x-show="!activeSeason" class="bg-gray-900 border border-gray-800 rounded-xl p-6 text-center">
+        <p class="text-gray-400 mb-3">Necesitás una temporada activa.</p>
+        <button @click="currentTab = 'temporadas'" class="btn-primary">Crear temporada</button>
+      </div>
+
+      <template x-if="activeSeason">
+        <div class="space-y-4">
+
+          <!-- Formulario nuevo partido en curso -->
+          <div class="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
+            <h2 class="font-semibold text-gray-200">Iniciar partido</h2>
+
+            <div>
+              <label class="label">Modalidad</label>
+              <div class="grid grid-cols-2 gap-2 mt-1">
+                <button
+                  @click="incompleteForm.mode = '1v1'; incompleteForm.team1 = []; incompleteForm.team2 = []"
+                  :class="incompleteForm.mode === '1v1' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-300'"
+                  class="border rounded-lg py-2 text-sm font-medium transition-colors">1 vs 1</button>
+                <button
+                  @click="incompleteForm.mode = '2v2'; incompleteForm.team1 = []; incompleteForm.team2 = []"
+                  :class="incompleteForm.mode === '2v2' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-300'"
+                  class="border rounded-lg py-2 text-sm font-medium transition-colors">2 vs 2</button>
+              </div>
+            </div>
+
+            <div>
+              <label class="label" x-text="incompleteForm.mode === '1v1' ? 'Jugador 1' : 'Equipo 1'"></label>
+              <div class="grid grid-cols-2 gap-2 mt-1">
+                <template x-for="p in players" :key="'it1-'+p.id">
+                  <button
+                    @click="incompleteForm.team1.includes(p.id) ? incompleteForm.team1.splice(incompleteForm.team1.indexOf(p.id),1) : (incompleteForm.team2.includes(p.id) || (incompleteForm.mode==='1v1' && incompleteForm.team1.length>=1) ? null : incompleteForm.team1.push(p.id))"
+                    :disabled="incompleteForm.team2.includes(p.id) || (incompleteForm.mode==='1v1' && incompleteForm.team1.length>=1 && !incompleteForm.team1.includes(p.id))"
+                    :class="incompleteForm.team1.includes(p.id) ? 'bg-blue-600 border-blue-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-300 disabled:opacity-30'"
+                    class="border rounded-lg py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed"
+                    x-text="p.name">
+                  </button>
+                </template>
+              </div>
+            </div>
+
+            <div>
+              <label class="label" x-text="incompleteForm.mode === '1v1' ? 'Jugador 2' : 'Equipo 2'"></label>
+              <div class="grid grid-cols-2 gap-2 mt-1">
+                <template x-for="p in players" :key="'it2-'+p.id">
+                  <button
+                    @click="incompleteForm.team2.includes(p.id) ? incompleteForm.team2.splice(incompleteForm.team2.indexOf(p.id),1) : (incompleteForm.team1.includes(p.id) || (incompleteForm.mode==='1v1' && incompleteForm.team2.length>=1) ? null : incompleteForm.team2.push(p.id))"
+                    :disabled="incompleteForm.team1.includes(p.id) || (incompleteForm.mode==='1v1' && incompleteForm.team2.length>=1 && !incompleteForm.team2.includes(p.id))"
+                    :class="incompleteForm.team2.includes(p.id) ? 'bg-purple-600 border-purple-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-300 disabled:opacity-30'"
+                    class="border rounded-lg py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed"
+                    x-text="p.name">
+                  </button>
+                </template>
+              </div>
+            </div>
+
+            <div x-show="incompleteFormError" class="text-red-400 text-xs" x-text="incompleteFormError"></div>
+
+            <button
+              @click="saveIncompleteMatch()"
+              :disabled="savingIncomplete"
+              class="w-full btn-primary disabled:opacity-40">
+              <span x-show="!savingIncomplete">Iniciar partido</span>
+              <span x-show="savingIncomplete">Guardando...</span>
+            </button>
+          </div>
+
+          <!-- Lista de partidos en curso -->
+          <div x-show="incompleteMatches.length === 0" class="bg-gray-900 border border-gray-800 rounded-xl p-6 text-center">
+            <p class="text-gray-500 text-sm">No hay partidos en curso.</p>
+          </div>
+
+          <template x-for="m in incompleteMatches" :key="m.id">
+            <div class="bg-gray-900 border border-amber-800/50 rounded-xl p-4 space-y-4">
+
+              <!-- Header -->
+              <div class="flex items-center justify-between">
+                <span class="text-xs text-amber-400 font-semibold">⏳ En curso</span>
+                <div class="flex items-center gap-2">
+                  <span
+                    :class="m.mode === '1v1' ? 'bg-blue-900/50 text-blue-300' : 'bg-purple-900/50 text-purple-300'"
+                    class="text-xs font-semibold px-2 py-0.5 rounded-full"
+                    x-text="m.mode">
+                  </span>
+                  <span class="text-xs text-gray-500" x-text="formatDate(m.played_at)"></span>
+                </div>
+              </div>
+
+              <!-- Puntos -->
+              <div class="flex items-center gap-3">
+                <!-- Equipo 1 -->
+                <div class="flex-1 space-y-1">
+                  <div class="text-xs text-blue-400 font-medium text-center" x-text="matchTeamNames(m, 1)"></div>
+                  <input
+                    type="number"
+                    min="0"
+                    x-model="pointsEdit[m.id].team1"
+                    class="input text-center text-lg font-bold"
+                    placeholder="0" />
+                </div>
+
+                <span class="text-gray-600 font-bold shrink-0">vs</span>
+
+                <!-- Equipo 2 -->
+                <div class="flex-1 space-y-1">
+                  <div class="text-xs text-purple-400 font-medium text-center" x-text="matchTeamNames(m, 2)"></div>
+                  <input
+                    type="number"
+                    min="0"
+                    x-model="pointsEdit[m.id].team2"
+                    class="input text-center text-lg font-bold"
+                    placeholder="0" />
+                </div>
+              </div>
+
+              <!-- Acciones -->
+              <div class="flex gap-2">
+                <button
+                  @click="savePoints(m)"
+                  class="flex-1 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 rounded-lg py-2 text-sm font-medium transition-colors">
+                  Guardar puntos
+                </button>
+                <button
+                  @click="confirmCompleteMatch(m)"
+                  class="flex-1 btn-primary">
+                  Completar
+                </button>
+                <button
+                  @click="confirmDeleteIncomplete(m)"
+                  class="border border-red-900 text-red-500 hover:bg-red-900/20 rounded-lg px-3 text-sm transition-colors">
+                  ✕
+                </button>
+              </div>
+
+            </div>
+          </template>
+
+        </div>
+      </template>
+    </div>
+
+    <!-- ══════════════════════════════ TEMPORADAS ══════════════════════════════ -->
+    <div x-show="currentTab === 'temporadas'" class="space-y-4">
+
+      <!-- Crear nueva -->
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+        <h2 class="font-semibold text-gray-200">Nueva temporada</h2>
+        <div x-show="activeSeason" class="text-xs text-amber-400 bg-amber-900/30 border border-amber-800 rounded-lg p-3">
+          ⚠️ Crear una temporada nueva cerrará la temporada activa «<span x-text="activeSeason?.name"></span>».
+        </div>
+        <div>
+          <label class="label">Nombre</label>
+          <input
+            x-model="newSeasonName"
+            type="text"
+            placeholder="ej: Temporada verano 2025"
+            class="input mt-1"
+            @keydown.enter="createSeason()" />
+        </div>
+        <button
+          @click="createSeason()"
+          :disabled="!newSeasonName.trim() || saving"
+          class="w-full btn-primary disabled:opacity-40 disabled:cursor-not-allowed">
+          <span x-show="!saving">Crear temporada</span>
+          <span x-show="saving">Creando...</span>
+        </button>
+      </div>
+
+      <!-- Cerrar temporada activa -->
+      <div x-show="activeSeason" class="bg-gray-900 border border-red-900/50 rounded-xl p-4 space-y-3">
+        <h2 class="font-semibold text-gray-200">Cerrar temporada activa</h2>
+        <p class="text-sm text-gray-400">Cerrá «<span x-text="activeSeason?.name" class="text-gray-200"></span>» sin iniciar una nueva. Los datos quedan guardados.</p>
+        <button
+          @click="confirmCloseSeason()"
+          class="w-full border border-red-700 text-red-400 hover:bg-red-900/30 rounded-lg py-2 text-sm font-medium transition-colors">
+          Cerrar temporada
+        </button>
+      </div>
+
+      <!-- Historial -->
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+        <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">Historial</h2>
+        <div x-show="seasons.length === 0" class="text-gray-500 text-sm text-center py-4">Sin temporadas aún.</div>
+        <div class="space-y-2">
+          <template x-for="s in seasons" :key="s.id">
+            <div class="flex items-center justify-between py-2 border-b border-gray-800 last:border-0">
+              <div>
+                <div class="font-medium text-sm" x-text="s.name"></div>
+                <div class="text-xs text-gray-500" x-text="formatDate(s.started_at) + (s.ended_at ? ' → ' + formatDate(s.ended_at) : ' → hoy')"></div>
+              </div>
+              <span
+                :class="s.is_active ? 'bg-emerald-900 text-emerald-300' : 'bg-gray-800 text-gray-400'"
+                class="text-xs px-2 py-0.5 rounded-full font-medium"
+                x-text="s.is_active ? 'Activa' : 'Cerrada'">
+              </span>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════ JUGADORES ══════════════════════════════ -->
+    <div x-show="currentTab === 'jugadores'" class="space-y-4">
+
+      <!-- Agregar jugador -->
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+        <h2 class="font-semibold text-gray-200">Agregar jugador</h2>
+        <div class="flex gap-2">
+          <input
+            x-model="newPlayerName"
+            type="text"
+            placeholder="Nombre"
+            class="input flex-1"
+            @keydown.enter="addPlayer()" />
+          <button
+            @click="addPlayer()"
+            :disabled="!newPlayerName.trim() || saving"
+            class="btn-primary px-4 disabled:opacity-40">
+            +
+          </button>
+        </div>
+        <div x-show="playerError" class="text-red-400 text-xs" x-text="playerError"></div>
+      </div>
+
+      <!-- Lista -->
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+        <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">Jugadores (<span x-text="players.length"></span>)</h2>
+        <div x-show="players.length === 0" class="text-gray-500 text-sm text-center py-4">Agregá los jugadores para empezar.</div>
+        <div class="space-y-2">
+          <template x-for="p in players" :key="p.id">
+            <div class="flex items-center gap-3 py-2 border-b border-gray-800 last:border-0">
+              <div class="w-8 h-8 rounded-full bg-emerald-800 flex items-center justify-center text-emerald-200 font-semibold text-sm" x-text="p.name[0].toUpperCase()"></div>
+              <span class="font-medium flex-1" x-text="p.name"></span>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Confirm modal -->
+  <div x-show="confirm.show" class="fixed inset-0 bg-black/70 flex items-center justify-center z-50 px-4" @keydown.escape.window="confirm.show = false">
+    <div class="bg-gray-900 border border-gray-700 rounded-xl p-6 max-w-sm w-full space-y-4">
+      <p class="text-gray-200 font-medium" x-text="confirm.message"></p>
+      <div class="flex gap-3">
+        <button @click="confirm.show = false" class="flex-1 border border-gray-700 text-gray-300 rounded-lg py-2 text-sm">Cancelar</button>
+        <button @click="confirm.action(); confirm.show = false" class="flex-1 bg-red-700 hover:bg-red-600 text-white rounded-lg py-2 text-sm font-medium">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<style>
+  .btn-primary {
+    @apply bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2.5 px-4 rounded-lg text-sm transition-colors;
+  }
+  .label {
+    @apply text-xs font-medium text-gray-400 uppercase tracking-wide;
+  }
+  .input {
+    @apply w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30;
+    appearance: none;
+    -webkit-appearance: none;
+    color-scheme: dark;
+  }
+  .stat-card {
+    @apply bg-gray-900 border border-gray-800 rounded-xl p-4 text-center;
+  }
+  .stat-value {
+    @apply text-2xl font-bold text-white;
+  }
+  .stat-label {
+    @apply text-xs text-gray-500 mt-1;
+  }
+</style>
+
+<script>
+  // ─── CONFIGURACIÓN ───────────────────────────────────────────────
+  const SUPABASE_URL      = 'https://vvuvcfukqwkbxqmwkhoc.supabase.co';      // <-- reemplazá
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ2dXZjZnVrcXdrYnhxbXdraG9jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE0NjcxNzYsImV4cCI6MjA5NzA0MzE3Nn0.H8JHoSQd32bC6B0jjGehMzqaD99m0yfwd9x2CyJAhoc'
+   // ─────────────────────────────────────────────────────────────────
+
+  function app() {    
+    return {
+      sb: null,
+      loading: true,
+      configError: false,
+      saving: false,
+
+      tabs: [
+        { id: 'inicio',      label: 'Inicio'       },
+        { id: 'partido',     label: 'Nuevo partido' },
+        { id: 'tabla',       label: 'Tabla'         },
+        { id: 'partidos',    label: 'Partidos'      },
+        { id: 'incompletos', label: 'En curso'      },
+        { id: 'temporadas',  label: 'Temporadas'    },
+        { id: 'jugadores',   label: 'Jugadores'     },
+      ],
+      currentTab: 'inicio',
+
+      // Data
+      players: [],
+      seasons: [],
+      activeSeason: null,
+      selectedSeasonId: null,
+      seasonMatches: [],
+
+      // Stats
+      individualStats: [],
+      pairStats: [],
+      sortIndividual: 'wins',
+      sortPairs: 'wins',
+
+      // Forms
+      matchForm: { mode: '1v1', team1: [], team2: [], winner: null },
+      matchSaved: false,
+      matchError: '',
+      newSeasonName: '',
+      newPlayerName: '',
+      playerError: '',
+
+      // Partidos en curso
+      incompleteMatches: [],
+      incompleteForm: { mode: '1v1', team1: [], team2: [] },
+      incompleteFormError: '',
+      savingIncomplete: false,
+      pointsEdit: {},
+
+      // Confirm dialog
+      confirm: { show: false, message: '', action: () => {} },
+
+      // ── Computed ──────────────────────────────────────────────────
+      get canSaveMatch() {
+        const f = this.matchForm;
+        const need = f.mode === '1v1' ? 1 : 2;
+        return f.team1.length === need && f.team2.length === need && f.winner !== null;
+      },
+
+      get sortedIndividual() {
+        return [...this.individualStats].sort((a, b) =>
+          this.sortIndividual === 'wins' ? b.wins - a.wins : b.winPct - a.winPct
+        );
+      },
+
+      get sortedPairs() {
+        return [...this.pairStats].sort((a, b) =>
+          this.sortPairs === 'wins' ? b.wins - a.wins : b.winPct - a.winPct
+        );
+      },
+
+      // ── Init ──────────────────────────────────────────────────────
+      async init() {
+        if (SUPABASE_URL === 'TU_SUPABASE_URL') {
+          this.configError = true;
+          this.loading = false;
+          return;
+        }
+        this.sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        await Promise.all([this.loadPlayers(), this.loadSeasons()]);
+        await this.loadIncompleteMatches();
+        this.loading = false;
+      },
+
+      // ── Loaders ───────────────────────────────────────────────────
+      async loadPlayers() {
+        const { data } = await this.sb.from('players').select('*').order('name');
+        this.players = data ?? [];
+      },
+
+      async loadSeasons() {
+        const { data } = await this.sb.from('seasons').select('*').order('started_at', { ascending: false });
+        this.seasons = data ?? [];
+        this.activeSeason = this.seasons.find(s => s.is_active) ?? null;
+        if (this.seasons.length > 0) {
+          this.selectedSeasonId = this.activeSeason?.id ?? this.seasons[0].id;
+          await this.loadSeasonStats();
+        }
+      },
+
+      async loadSeasonStats() {
+        if (!this.selectedSeasonId) return;
+
+        // Traer solo partidos completos (los incompletos no suman a la liga)
+        const { data: matches } = await this.sb
+          .from('matches')
+          .select('*, match_players(*, players(id, name))')
+          .eq('season_id', this.selectedSeasonId)
+          .eq('status', 'complete')
+          .order('played_at', { ascending: false });
+
+        const all = matches ?? [];
+        this.seasonMatches = this.activeSeason ? all.filter(m => m.season_id === this.activeSeason.id) : all;
+        if (this.selectedSeasonId === this.activeSeason?.id) this.seasonMatches = all;
+        else this.seasonMatches = all; // already filtered by season
+
+        this.computeIndividualStats(all);
+        this.computePairStats(all);
+      },
+
+      computeIndividualStats(matches) {
+        const map = {};
+        for (const m of matches) {
+          for (const mp of m.match_players) {
+            const pid = mp.player_id;
+            if (!map[pid]) map[pid] = { player_id: pid, name: mp.players.name, wins: 0, losses: 0, total: 0 };
+            map[pid].total++;
+            mp.is_winner ? map[pid].wins++ : map[pid].losses++;
+          }
+        }
+        this.individualStats = Object.values(map).map(s => ({
+          ...s,
+          winPct: s.total ? Math.round(s.wins / s.total * 100) : 0,
+        }));
+      },
+
+      computePairStats(matches) {
+        const map = {};
+        for (const m of matches.filter(m => m.mode === '2v2')) {
+          for (const team of [1, 2]) {
+            const teamPlayers = m.match_players.filter(mp => mp.team === team);
+            if (teamPlayers.length !== 2) continue;
+            const ids = teamPlayers.map(mp => mp.player_id).sort();
+            const key = ids.join('-');
+            const names = ids.map(id => teamPlayers.find(mp => mp.player_id === id).players.name).join(' & ');
+            if (!map[key]) map[key] = { key, names, wins: 0, losses: 0 };
+            teamPlayers[0].is_winner ? map[key].wins++ : map[key].losses++;
+          }
+        }
+        this.pairStats = Object.values(map).map(p => ({
+          ...p,
+          winPct: (p.wins + p.losses) ? Math.round(p.wins / (p.wins + p.losses) * 100) : 0,
+        }));
+      },
+
+      // ── Match form ────────────────────────────────────────────────
+      setMode(mode) {
+        this.matchForm = { mode, team1: [], team2: [], winner: null };
+      },
+
+      toggleTeam(team, playerId) {
+        const key = team === 1 ? 'team1' : 'team2';
+        const list = this.matchForm[key];
+        const idx = list.indexOf(playerId);
+        if (idx >= 0) {
+          list.splice(idx, 1);
+          if (this.matchForm.winner === team) this.matchForm.winner = null;
+        } else {
+          list.push(playerId);
+        }
+      },
+
+      isInTeam(team, playerId) {
+        return (team === 1 ? this.matchForm.team1 : this.matchForm.team2).includes(playerId);
+      },
+
+      teamLabel(team) {
+        const ids = team === 1 ? this.matchForm.team1 : this.matchForm.team2;
+        return ids.map(id => this.players.find(p => p.id === id)?.name ?? '').join(' & ') || '—';
+      },
+
+      async saveMatch() {
+        if (!this.canSaveMatch || this.saving) return;
+        this.saving = true;
+        this.matchError = '';
+        this.matchSaved = false;
+
+        try {
+          const { data: match, error: me } = await this.sb
+            .from('matches')
+            .insert({ season_id: this.activeSeason.id, mode: this.matchForm.mode })
+            .select()
+            .single();
+          if (me) throw me;
+
+          const rows = [];
+          for (const pid of this.matchForm.team1)
+            rows.push({ match_id: match.id, player_id: pid, team: 1, is_winner: this.matchForm.winner === 1 });
+          for (const pid of this.matchForm.team2)
+            rows.push({ match_id: match.id, player_id: pid, team: 2, is_winner: this.matchForm.winner === 2 });
+
+          const { error: mpe } = await this.sb.from('match_players').insert(rows);
+          if (mpe) throw mpe;
+
+          this.matchForm = { mode: this.matchForm.mode, team1: [], team2: [], winner: null };
+          this.matchSaved = true;
+          setTimeout(() => this.matchSaved = false, 3000);
+          await this.loadSeasonStats();
+        } catch (e) {
+          this.matchError = 'Error al guardar: ' + (e.message ?? 'desconocido');
+        } finally {
+          this.saving = false;
+        }
+      },
+
+      // ── Seasons ───────────────────────────────────────────────────
+      async createSeason() {
+        if (!this.newSeasonName.trim() || this.saving) return;
+        this.saving = true;
+
+        try {
+          // Cerrar la activa si existe
+          if (this.activeSeason) {
+            await this.sb
+              .from('seasons')
+              .update({ is_active: false, ended_at: new Date().toISOString() })
+              .eq('id', this.activeSeason.id);
+          }
+
+          await this.sb.from('seasons').insert({ name: this.newSeasonName.trim() });
+          this.newSeasonName = '';
+          await this.loadSeasons();
+        } finally {
+          this.saving = false;
+        }
+      },
+
+      confirmCloseSeason() {
+        this.confirm = {
+          show: true,
+          message: `¿Cerrás la temporada "${this.activeSeason.name}"? No se puede reabrir.`,
+          action: () => this.closeSeason(),
+        };
+      },
+
+      async closeSeason() {
+        if (!this.activeSeason) return;
+        await this.sb
+          .from('seasons')
+          .update({ is_active: false, ended_at: new Date().toISOString() })
+          .eq('id', this.activeSeason.id);
+        await this.loadSeasons();
+      },
+
+      // ── Players ───────────────────────────────────────────────────
+      async addPlayer() {
+        const name = this.newPlayerName.trim();
+        if (!name || this.saving) return;
+        this.playerError = '';
+        this.saving = true;
+
+        try {
+          const { error } = await this.sb.from('players').insert({ name });
+          if (error) throw error;
+          this.newPlayerName = '';
+          await this.loadPlayers();
+        } catch (e) {
+          this.playerError = e.message?.includes('unique') ? 'Ya existe un jugador con ese nombre.' : 'Error al guardar.';
+        } finally {
+          this.saving = false;
+        }
+      },
+
+      // ── Partidos en curso ─────────────────────────────────────────
+      async loadIncompleteMatches() {
+        if (!this.activeSeason) { this.incompleteMatches = []; return; }
+        const { data } = await this.sb
+          .from('matches')
+          .select('*, match_players(*, players(id, name))')
+          .eq('season_id', this.activeSeason.id)
+          .eq('status', 'incomplete')
+          .order('played_at', { ascending: false });
+        this.incompleteMatches = data ?? [];
+        for (const m of this.incompleteMatches) {
+          if (!this.pointsEdit[m.id])
+            this.pointsEdit[m.id] = { team1: m.team1_points ?? 0, team2: m.team2_points ?? 0 };
+        }
+      },
+
+      async saveIncompleteMatch() {
+        const f = this.incompleteForm;
+        const need = f.mode === '1v1' ? 1 : 2;
+        if (f.team1.length !== need || f.team2.length !== need) {
+          this.incompleteFormError = 'Seleccioná los jugadores de ambos equipos.';
+          return;
+        }
+        this.savingIncomplete = true;
+        this.incompleteFormError = '';
+        try {
+          const { data: match, error: me } = await this.sb
+            .from('matches')
+            .insert({ season_id: this.activeSeason.id, mode: f.mode, status: 'incomplete', team1_points: 0, team2_points: 0 })
+            .select().single();
+          if (me) throw me;
+
+          const rows = [
+            ...f.team1.map(pid => ({ match_id: match.id, player_id: pid, team: 1, is_winner: false })),
+            ...f.team2.map(pid => ({ match_id: match.id, player_id: pid, team: 2, is_winner: false })),
+          ];
+          const { error: mpe } = await this.sb.from('match_players').insert(rows);
+          if (mpe) throw mpe;
+
+          this.incompleteForm = { mode: f.mode, team1: [], team2: [] };
+          await this.loadIncompleteMatches();
+        } catch (e) {
+          this.incompleteFormError = 'Error al guardar: ' + (e.message ?? 'desconocido');
+        } finally {
+          this.savingIncomplete = false;
+        }
+      },
+
+      async savePoints(match) {
+        const pts = this.pointsEdit[match.id];
+        await this.sb.from('matches')
+          .update({ team1_points: Number(pts.team1), team2_points: Number(pts.team2) })
+          .eq('id', match.id);
+      },
+
+      confirmCompleteMatch(match) {
+        const pts = this.pointsEdit[match.id];
+        if (pts.team1 === pts.team2) {
+          this.confirm = { show: true, message: 'Los puntos están empatados. ¿Quién ganó?', action: () => {} };
+          return;
+        }
+        const winnerTeam = Number(pts.team1) > Number(pts.team2) ? 1 : 2;
+        const winnerNames = this.matchTeamNames(match, winnerTeam);
+        this.confirm = {
+          show: true,
+          message: `Completar el partido. Ganador: ${winnerNames} (${winnerTeam === 1 ? pts.team1 : pts.team2} pts). ¿Confirmás?`,
+          action: () => this.completeMatch(match, winnerTeam),
+        };
+      },
+
+      async completeMatch(match, winnerTeam) {
+        const pts = this.pointsEdit[match.id];
+        await this.sb.from('matches')
+          .update({ status: 'complete', team1_points: Number(pts.team1), team2_points: Number(pts.team2) })
+          .eq('id', match.id);
+        await this.sb.from('match_players')
+          .update({ is_winner: true }).eq('match_id', match.id).eq('team', winnerTeam);
+        await this.sb.from('match_players')
+          .update({ is_winner: false }).eq('match_id', match.id).eq('team', winnerTeam === 1 ? 2 : 1);
+        await Promise.all([this.loadIncompleteMatches(), this.loadSeasonStats()]);
+      },
+
+      confirmDeleteIncomplete(match) {
+        this.confirm = {
+          show: true,
+          message: '¿Cancelar este partido? Se va a eliminar y no quedará registro.',
+          action: () => this.deleteIncomplete(match.id),
+        };
+      },
+
+      async deleteIncomplete(matchId) {
+        await this.sb.from('matches').delete().eq('id', matchId);
+        await this.loadIncompleteMatches();
+      },
+
+      // ── Match helpers ─────────────────────────────────────────────
+      matchTeamNames(match, team) {
+        return match.match_players
+          .filter(mp => mp.team === team)
+          .map(mp => mp.players.name)
+          .join(' & ') || '—';
+      },
+
+      matchWinner(match) {
+        const w = match.match_players.find(mp => mp.is_winner);
+        return w ? w.team : null;
+      },
+
+      // ── Utils ─────────────────────────────────────────────────────
+      formatDate(iso) {
+        if (!iso) return '';
+        return new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' });
+      },
+    };
+  }
+</script>
+
+</body>
+</html>

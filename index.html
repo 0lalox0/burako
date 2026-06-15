@@ -431,12 +431,18 @@
         <p class="text-gray-400 text-sm">Aún no hay partidos en esta temporada.</p>
       </div>
 
-      <template x-for="m in seasonMatches" :key="m.id">
+      <template x-for="(m, i) in seasonMatches" :key="m.id">
         <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
 
-          <!-- Fecha y modo -->
+          <!-- Número, temporada, fecha y modo -->
           <div class="flex items-center justify-between mb-1">
-            <span class="text-xs text-gray-500" x-text="formatDate(m.played_at)"></span>
+            <div>
+              <span class="text-xs font-semibold text-gray-400">#<span x-text="seasonMatches.length - i"></span></span>
+              <span class="text-xs text-gray-600 mx-1">·</span>
+              <span class="text-xs text-gray-500" x-text="seasons.find(s => s.id === m.season_id)?.name ?? ''"></span>
+              <span class="text-xs text-gray-600 mx-1">·</span>
+              <span class="text-xs text-gray-500" x-text="formatDate(m.played_at)"></span>
+            </div>
             <span
               :class="m.mode === '1v1' ? 'bg-blue-900/50 text-blue-300' : 'bg-purple-900/50 text-purple-300'"
               class="text-xs font-semibold px-2 py-0.5 rounded-full"
@@ -614,6 +620,253 @@
     </div>
 
     <!-- ══════════════════════════════ TEMPORADAS ══════════════════════════════ -->
+    <!-- ══════════════════════════════ LIGA ══════════════════════════════ -->
+    <div x-show="currentTab === 'liga'" class="space-y-4">
+
+      <!-- Ligas cerradas (siempre visible) -->
+      <div x-show="pastLeagues.length > 0" class="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-2">
+        <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-1">Ligas anteriores</h2>
+        <template x-for="league in pastLeagues" :key="league.id">
+          <div class="border border-gray-800 rounded-lg overflow-hidden">
+
+            <!-- Header colapsable -->
+            <button
+              @click="togglePastLeague(league)"
+              class="w-full flex items-center justify-between px-3 py-2.5 hover:bg-gray-800/50 transition-colors">
+              <span class="font-medium text-sm text-gray-200" x-text="league.name"></span>
+              <span class="text-gray-500 text-xs" x-text="expandedLeague === league.id ? '▲' : '▼'"></span>
+            </button>
+
+            <!-- Contenido expandido -->
+            <div x-show="expandedLeague === league.id" class="border-t border-gray-800 px-3 py-3 space-y-3">
+
+              <!-- Tabla final -->
+              <div x-show="pastLeagueStandings(league.id).length === 0" class="text-gray-500 text-xs text-center py-2">
+                Sin partidos jugados.
+              </div>
+              <div x-show="pastLeagueStandings(league.id).length > 0">
+                <p class="text-xs text-gray-500 mb-2 uppercase tracking-wide">Tabla final</p>
+                <table class="w-full text-sm">
+                  <thead><tr class="text-xs text-gray-600 border-b border-gray-800">
+                    <th class="text-left pb-1">#</th>
+                    <th class="text-left pb-1">Jugador</th>
+                    <th class="text-center pb-1">V</th>
+                    <th class="text-center pb-1">D</th>
+                    <th class="text-right pb-1">%</th>
+                  </tr></thead>
+                  <tbody>
+                    <template x-for="(s, i) in pastLeagueStandings(league.id)" :key="s.pid">
+                      <tr class="border-b border-gray-800/40 last:border-0">
+                        <td class="py-1.5 text-gray-500" x-text="['🥇','🥈','🥉'][i] || (i+1)+'.'"></td>
+                        <td class="py-1.5 font-medium" x-text="s.name"></td>
+                        <td class="py-1.5 text-center text-emerald-400 font-semibold" x-text="s.wins"></td>
+                        <td class="py-1.5 text-center text-red-400" x-text="s.losses"></td>
+                        <td class="py-1.5 text-right font-semibold" x-text="s.winPct + '%'"></td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Resumen de partidos -->
+              <div class="text-xs text-gray-500 text-center" x-text="(pastLeagueMatches[league.id] ?? []).filter(m => m.status === 'complete').length + ' de ' + (pastLeagueMatches[league.id] ?? []).length + ' partidos jugados'"></div>
+
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- Crear liga -->
+      <div x-show="!formalSeason" class="space-y-4">
+        <div class="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
+          <h2 class="font-semibold text-gray-200">Nueva liga formal</h2>
+
+          <div>
+            <label class="label">Nombre</label>
+            <input x-model="formalForm.name" type="text" placeholder="ej: Liga Invierno 2025" class="input mt-1" />
+          </div>
+
+          <div>
+            <label class="label">Jugadores (<span x-text="formalForm.playerIds.length"></span> seleccionados, mín. 4)</label>
+            <div class="grid grid-cols-2 gap-2 mt-1">
+              <template x-for="p in players" :key="'fp-'+p.id">
+                <button
+                  @click="toggleFormalPlayer(p.id)"
+                  :class="formalForm.playerIds.includes(p.id) ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-300'"
+                  class="border rounded-lg py-2 text-sm font-medium transition-colors"
+                  x-text="p.name">
+                </button>
+              </template>
+            </div>
+          </div>
+
+          <div x-show="formalForm.playerIds.length >= 4" class="space-y-3">
+            <div>
+              <label class="label">Rondas</label>
+              <div class="grid grid-cols-4 gap-2 mt-1">
+                <template x-for="r in [1,2,3,4]" :key="r">
+                  <button
+                    @click="formalForm.rounds = r"
+                    :class="formalForm.rounds === r ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-300'"
+                    class="border rounded-lg py-2 text-sm font-medium transition-colors"
+                    x-text="r">
+                  </button>
+                </template>
+              </div>
+              <p class="text-xs text-gray-500 mt-1">
+                Cada ronda = todos juegan de compañero con todos al menos una vez.
+              </p>
+            </div>
+            <div class="text-xs text-gray-400 bg-gray-800 rounded-lg p-3">
+              Se van a generar
+              <strong x-text="generateSchedule(formalForm.playerIds, formalForm.rounds).length" class="text-emerald-400"></strong>
+              partidos — <span x-text="formalForm.rounds"></span> ronda<span x-show="formalForm.rounds > 1">s</span>, equilibrio garantizado.
+            </div>
+          </div>
+
+          <div x-show="formalError" class="text-red-400 text-xs" x-text="formalError"></div>
+
+          <button
+            @click="createFormalSeason()"
+            :disabled="savingFormal || formalForm.playerIds.length < 4 || !formalForm.name.trim()"
+            class="w-full btn-primary disabled:opacity-40 disabled:cursor-not-allowed">
+            <span x-show="!savingFormal">Crear liga y generar fixture</span>
+            <span x-show="savingFormal">Generando...</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Liga activa -->
+      <template x-if="formalSeason">
+        <div class="space-y-3">
+
+          <!-- Header de la liga -->
+          <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 flex items-center justify-between">
+            <div>
+              <div class="font-semibold text-gray-100" x-text="formalSeason.name"></div>
+              <div class="text-xs text-gray-500 mt-0.5">
+                <span x-text="formalPending.length"></span> pendientes ·
+                <span x-text="formalCompleted.length"></span> jugados de
+                <span x-text="formalMatches.length"></span>
+              </div>
+            </div>
+            <button
+              @click="confirm = { show: true, message: '¿Cerrás la liga? Los datos quedan guardados.', action: () => closeFormalSeason(), choices: null }"
+              class="text-xs border border-red-900 text-red-500 hover:bg-red-900/20 rounded-lg px-3 py-1.5 transition-colors">
+              Cerrar liga
+            </button>
+          </div>
+
+          <!-- Sub-tabs -->
+          <div class="flex bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+            <button
+              @click="formalTab = 'pendientes'"
+              :class="formalTab === 'pendientes' ? 'bg-gray-800 text-emerald-400' : 'text-gray-500'"
+              class="flex-1 py-2.5 text-sm font-medium transition-colors">
+              Pendientes <span class="text-xs" x-text="'('+formalPending.length+')'"></span>
+            </button>
+            <button
+              @click="formalTab = 'jugados'"
+              :class="formalTab === 'jugados' ? 'bg-gray-800 text-emerald-400' : 'text-gray-500'"
+              class="flex-1 py-2.5 text-sm font-medium transition-colors">
+              Jugados <span class="text-xs" x-text="'('+formalCompleted.length+')'"></span>
+            </button>
+            <button
+              @click="formalTab = 'tabla'"
+              :class="formalTab === 'tabla' ? 'bg-gray-800 text-emerald-400' : 'text-gray-500'"
+              class="flex-1 py-2.5 text-sm font-medium transition-colors">
+              Tabla
+            </button>
+          </div>
+
+          <!-- PENDIENTES -->
+          <div x-show="formalTab === 'pendientes'" class="space-y-2">
+            <div x-show="formalPending.length === 0" class="bg-gray-900 border border-gray-800 rounded-xl p-6 text-center text-gray-500 text-sm">
+              🏆 ¡Liga completada!
+            </div>
+            <template x-for="(m, i) in formalPending" :key="m.id">
+              <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+                <div class="text-xs text-gray-500 mb-2"># <span x-text="formalCompleted.length + i + 1"></span></div>
+                <div class="flex items-center gap-2 mb-3">
+                  <div class="flex-1 text-center bg-gray-800 rounded-lg py-2 px-3">
+                    <div class="text-sm font-medium" x-text="formalTeam(m, 1)"></div>
+                  </div>
+                  <span class="text-gray-600 text-xs font-bold shrink-0">vs</span>
+                  <div class="flex-1 text-center bg-gray-800 rounded-lg py-2 px-3">
+                    <div class="text-sm font-medium" x-text="formalTeam(m, 2)"></div>
+                  </div>
+                </div>
+                <button @click="confirmFormalMatch(m)" class="w-full btn-primary text-sm py-2">
+                  Registrar resultado
+                </button>
+              </div>
+            </template>
+          </div>
+
+          <!-- JUGADOS -->
+          <div x-show="formalTab === 'jugados'" class="space-y-2">
+            <div x-show="formalCompleted.length === 0" class="bg-gray-900 border border-gray-800 rounded-xl p-6 text-center text-gray-500 text-sm">
+              Aún no hay partidos jugados.
+            </div>
+            <template x-for="m in formalCompleted" :key="m.id">
+              <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+                <div class="text-xs text-gray-500 mb-2" x-text="formatDate(m.played_at)"></div>
+                <div class="flex items-center gap-2">
+                  <div
+                    :class="m.winner_team === 1 ? 'border-emerald-600 bg-emerald-900/20' : 'border-gray-700'"
+                    class="flex-1 text-center border rounded-lg py-2 px-3">
+                    <div class="text-sm font-medium" x-text="formalTeam(m, 1)"></div>
+                    <div x-show="m.winner_team === 1" class="text-xs text-emerald-400 mt-0.5">ganador</div>
+                  </div>
+                  <span class="text-gray-600 text-xs font-bold shrink-0">vs</span>
+                  <div
+                    :class="m.winner_team === 2 ? 'border-emerald-600 bg-emerald-900/20' : 'border-gray-700'"
+                    class="flex-1 text-center border rounded-lg py-2 px-3">
+                    <div class="text-sm font-medium" x-text="formalTeam(m, 2)"></div>
+                    <div x-show="m.winner_team === 2" class="text-xs text-emerald-400 mt-0.5">ganador</div>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- TABLA -->
+          <div x-show="formalTab === 'tabla'">
+            <div x-show="formalStandings.length === 0" class="bg-gray-900 border border-gray-800 rounded-xl p-6 text-center text-gray-500 text-sm">
+              Jugá algunos partidos para ver la tabla.
+            </div>
+            <div x-show="formalStandings.length > 0" class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="text-xs text-gray-500 border-b border-gray-800">
+                    <th class="text-left pb-2">#</th>
+                    <th class="text-left pb-2">Jugador</th>
+                    <th class="text-center pb-2">V</th>
+                    <th class="text-center pb-2">D</th>
+                    <th class="text-center pb-2">PJ</th>
+                    <th class="text-right pb-2">%</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="(s, i) in formalStandings" :key="s.pid">
+                    <tr class="border-b border-gray-800/50 last:border-0">
+                      <td class="py-2 text-gray-500" x-text="['🥇','🥈','🥉'][i] || (i+1)+'.'"></td>
+                      <td class="py-2 font-medium" x-text="s.name"></td>
+                      <td class="py-2 text-center text-emerald-400 font-semibold" x-text="s.wins"></td>
+                      <td class="py-2 text-center text-red-400" x-text="s.losses"></td>
+                      <td class="py-2 text-center text-gray-400" x-text="s.total"></td>
+                      <td class="py-2 text-right font-semibold" x-text="s.winPct + '%'"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      </template>
+    </div>
+
     <div x-show="currentTab === 'temporadas'" class="space-y-4">
 
       <!-- Crear nueva -->
@@ -716,8 +969,19 @@
   <!-- Confirm modal -->
   <div x-show="confirm.show" class="fixed inset-0 bg-black/70 flex items-center justify-center z-50 px-4" @keydown.escape.window="confirm.show = false">
     <div class="bg-gray-900 border border-gray-700 rounded-xl p-6 max-w-sm w-full space-y-4">
-      <p class="text-gray-200 font-medium" x-text="confirm.message"></p>
-      <div class="flex gap-3">
+      <p class="text-gray-200 font-medium whitespace-pre-line" x-text="confirm.message"></p>
+      <!-- Dos opciones (elección de ganador) -->
+      <div x-show="confirm.choices" class="flex flex-col gap-2">
+        <template x-for="(c, i) in (confirm.choices || [])" :key="i">
+          <button @click="c.action(); confirm.show = false"
+            class="w-full bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg py-2.5 text-sm font-medium transition-colors"
+            x-text="c.label">
+          </button>
+        </template>
+        <button @click="confirm.show = false" class="w-full border border-gray-700 text-gray-400 rounded-lg py-2 text-sm">Cancelar</button>
+      </div>
+      <!-- Confirmación simple -->
+      <div x-show="!confirm.choices" class="flex gap-3">
         <button @click="confirm.show = false" class="flex-1 border border-gray-700 text-gray-300 rounded-lg py-2 text-sm">Cancelar</button>
         <button @click="confirm.action(); confirm.show = false" class="flex-1 bg-red-700 hover:bg-red-600 text-white rounded-lg py-2 text-sm font-medium">Confirmar</button>
       </div>
@@ -769,6 +1033,7 @@
         { id: 'tabla',       label: 'Tabla'         },
         { id: 'partidos',    label: 'Partidos'      },
         { id: 'incompletos', label: 'En curso'      },
+        { id: 'liga',        label: '🏆 Liga'       },
         { id: 'temporadas',  label: 'Temporadas'    },
         { id: 'jugadores',   label: 'Jugadores'     },
       ],
@@ -794,6 +1059,17 @@
       newSeasonName: '',
       newPlayerName: '',
       playerError: '',
+
+      // Liga formal
+      formalSeason: null,
+      formalMatches: [],
+      formalTab: 'pendientes',
+      formalForm: { name: '', playerIds: [], rounds: 1 },
+      savingFormal: false,
+      formalError: '',
+      pastLeagues: [],
+      expandedLeague: null,
+      pastLeagueMatches: {},
 
       // Head to head
       h2h: { player1: '', player2: '' },
@@ -828,7 +1104,7 @@
       pointsEdit: {},
 
       // Confirm dialog
-      confirm: { show: false, message: '', action: () => {} },
+      confirm: { show: false, message: '', action: () => {}, choices: null },
 
       // ── Computed ──────────────────────────────────────────────────
       get canSaveMatch() {
@@ -857,7 +1133,7 @@
           return;
         }
         this.sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-        await Promise.all([this.loadPlayers(), this.loadSeasons()]);
+        await Promise.all([this.loadPlayers(), this.loadSeasons(), this.loadFormalSeason()]);
         await this.loadIncompleteMatches();
         this.loading = false;
       },
@@ -1031,6 +1307,7 @@
           show: true,
           message: `¿Cerrás la temporada "${this.activeSeason.name}"? No se puede reabrir.`,
           action: () => this.closeSeason(),
+          choices: null,
         };
       },
 
@@ -1060,6 +1337,196 @@
         } finally {
           this.saving = false;
         }
+      },
+
+      // ── Liga formal ───────────────────────────────────────────────
+      get formalPending()   { return this.formalMatches.filter(m => m.status === 'pending'); },
+      get formalCompleted() { return this.formalMatches.filter(m => m.status === 'complete'); },
+
+      get formalStandings() {
+        const map = {};
+        for (const m of this.formalCompleted) {
+          [[m.team1_p1, m.team1_p2, 1], [m.team2_p1, m.team2_p2, 2]].forEach(([p1, p2, team]) => {
+            [p1, p2].forEach(pid => {
+              if (!map[pid]) map[pid] = { pid, wins: 0, losses: 0, total: 0 };
+              map[pid].total++;
+              m.winner_team === team ? map[pid].wins++ : map[pid].losses++;
+            });
+          });
+        }
+        return Object.values(map)
+          .map(s => ({ ...s, name: this.playerName(s.pid), winPct: s.total ? Math.round(s.wins / s.total * 100) : 0 }))
+          .sort((a, b) => b.wins - a.wins || b.winPct - a.winPct);
+      },
+
+      playerName(id) {
+        return this.players.find(p => p.id === id)?.name ?? '?';
+      },
+
+      formalTeam(match, team) {
+        return team === 1
+          ? `${this.playerName(match.team1_p1)} & ${this.playerName(match.team1_p2)}`
+          : `${this.playerName(match.team2_p1)} & ${this.playerName(match.team2_p2)}`;
+      },
+
+      async loadFormalSeason() {
+        const { data: all } = await this.sb
+          .from('formal_seasons')
+          .select('*')
+          .order('created_at', { ascending: false });
+        const seasons = all ?? [];
+        this.formalSeason = seasons.find(s => s.is_active) ?? null;
+        this.pastLeagues = seasons.filter(s => !s.is_active);
+        if (this.formalSeason) await this.loadFormalMatches();
+      },
+
+      async togglePastLeague(league) {
+        if (this.expandedLeague === league.id) { this.expandedLeague = null; return; }
+        this.expandedLeague = league.id;
+        if (!this.pastLeagueMatches[league.id]) {
+          const { data } = await this.sb
+            .from('formal_matches')
+            .select('*')
+            .eq('formal_season_id', league.id)
+            .order('created_at');
+          this.pastLeagueMatches[league.id] = data ?? [];
+        }
+      },
+
+      pastLeagueStandings(leagueId) {
+        const matches = (this.pastLeagueMatches[leagueId] ?? []).filter(m => m.status === 'complete');
+        const map = {};
+        for (const m of matches) {
+          [[m.team1_p1, m.team1_p2, 1], [m.team2_p1, m.team2_p2, 2]].forEach(([p1, p2, team]) => {
+            [p1, p2].forEach(pid => {
+              if (!map[pid]) map[pid] = { pid, wins: 0, losses: 0, total: 0 };
+              map[pid].total++;
+              m.winner_team === team ? map[pid].wins++ : map[pid].losses++;
+            });
+          });
+        }
+        return Object.values(map)
+          .map(s => ({ ...s, name: this.playerName(s.pid), winPct: s.total ? Math.round(s.wins / s.total * 100) : 0 }))
+          .sort((a, b) => b.wins - a.wins || b.winPct - a.winPct);
+      },
+
+      async loadFormalMatches() {
+        const { data } = await this.sb
+          .from('formal_matches')
+          .select('*')
+          .eq('formal_season_id', this.formalSeason.id)
+          .order('created_at');
+        this.formalMatches = data ?? [];
+      },
+
+      async createFormalSeason() {
+        if (!this.formalForm.name.trim()) { this.formalError = 'Poné un nombre para la liga.'; return; }
+        if (this.formalForm.playerIds.length < 4) { this.formalError = 'Necesitás al menos 4 jugadores.'; return; }
+        this.savingFormal = true;
+        this.formalError = '';
+        try {
+          const { data: season, error: se } = await this.sb
+            .from('formal_seasons')
+            .insert({ name: this.formalForm.name.trim() })
+            .select().single();
+          if (se) throw se;
+
+          const playerRows = this.formalForm.playerIds.map(pid => ({ formal_season_id: season.id, player_id: pid }));
+          await this.sb.from('formal_season_players').insert(playerRows);
+
+          const schedule = this.generateSchedule(this.formalForm.playerIds, this.formalForm.rounds);
+          const matchRows = schedule.map(m => ({
+            formal_season_id: season.id,
+            team1_p1: m.t1[0], team1_p2: m.t1[1],
+            team2_p1: m.t2[0], team2_p2: m.t2[1],
+            status: 'pending',
+          }));
+          await this.sb.from('formal_matches').insert(matchRows);
+
+          this.formalForm = { name: '', playerIds: [] };
+          this.formalSeason = season;
+          await this.loadFormalMatches();
+          this.formalTab = 'pendientes';
+        } catch (e) {
+          this.formalError = 'Error: ' + (e.message ?? 'desconocido');
+        } finally {
+          this.savingFormal = false;
+        }
+      },
+
+      toggleFormalPlayer(pid) {
+        const idx = this.formalForm.playerIds.indexOf(pid);
+        idx >= 0 ? this.formalForm.playerIds.splice(idx, 1) : this.formalForm.playerIds.push(pid);
+      },
+
+      confirmFormalMatch(match) {
+        this.confirm = {
+          show: true,
+          message: `¿Quién ganó?\n${this.formalTeam(match, 1)}\nvs\n${this.formalTeam(match, 2)}`,
+          choices: [
+            { label: this.formalTeam(match, 1), action: () => this.completeFormalMatch(match, 1) },
+            { label: this.formalTeam(match, 2), action: () => this.completeFormalMatch(match, 2) },
+          ],
+        };
+      },
+
+      async completeFormalMatch(match, winnerTeam) {
+        await this.sb.from('formal_matches')
+          .update({ status: 'complete', winner_team: winnerTeam, played_at: new Date().toISOString() })
+          .eq('id', match.id);
+        await this.loadFormalMatches();
+      },
+
+      async closeFormalSeason() {
+        await this.sb.from('formal_seasons').update({ is_active: false }).eq('id', this.formalSeason.id);
+        this.formalSeason = null;
+        this.formalMatches = [];
+      },
+
+      generateSchedule(playerIds, rounds = 1) {
+        const n = playerIds.length;
+        if (n < 4) return [];
+        const pk = (a, b) => a < b ? `${a}|${b}` : `${b}|${a}`;
+
+        // plays persiste entre rondas para mantener el equilibrio acumulado
+        const plays = Object.fromEntries(playerIds.map(p => [p, 0]));
+        const selected = [];
+
+        for (let round = 0; round < rounds; round++) {
+          // Rearma el pool completo para cada ronda
+          const pool = [];
+          for (let i = 0; i < n; i++)
+          for (let j = i+1; j < n; j++)
+          for (let k = j+1; k < n; k++)
+          for (let l = k+1; l < n; l++) {
+            const g = [playerIds[i], playerIds[j], playerIds[k], playerIds[l]];
+            pool.push([g[0],g[1],g[2],g[3]]);
+            pool.push([g[0],g[2],g[1],g[3]]);
+            pool.push([g[0],g[3],g[1],g[2]]);
+          }
+
+          const partnerSeen = new Set(); // se resetea por ronda
+          const remaining = [...pool];
+          const totalPairs = n * (n - 1) / 2;
+
+          while (partnerSeen.size < totalPairs && remaining.length > 0) {
+            let bestScore = -Infinity, bestIdx = 0;
+            for (let i = 0; i < remaining.length; i++) {
+              const [a, b, c, d] = remaining[i];
+              const newPairs = (!partnerSeen.has(pk(a,b)) ? 1 : 0) + (!partnerSeen.has(pk(c,d)) ? 1 : 0);
+              const maxP = Math.max(plays[a], plays[b], plays[c], plays[d]);
+              const minAll = Math.min(...Object.values(plays));
+              const score = newPairs * 10 - (maxP - minAll) * 5;
+              if (score > bestScore) { bestScore = score; bestIdx = i; }
+            }
+            const [a, b, c, d] = remaining.splice(bestIdx, 1)[0];
+            selected.push({ t1: [a, b], t2: [c, d] });
+            plays[a]++; plays[b]++; plays[c]++; plays[d]++;
+            partnerSeen.add(pk(a, b));
+            partnerSeen.add(pk(c, d));
+          }
+        }
+        return selected;
       },
 
       // ── Partidos en curso ─────────────────────────────────────────

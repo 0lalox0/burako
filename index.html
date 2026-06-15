@@ -107,7 +107,10 @@
               <template x-for="(s, i) in sortedIndividual" :key="s.player_id">
                 <div class="flex items-center gap-3 py-2 border-b border-gray-800 last:border-0">
                   <span class="text-lg w-7 text-center" x-text="['🥇','🥈','🥉'][i] || (i+1)+'.'"></span>
-                  <span class="font-medium flex-1" x-text="s.name"></span>
+                  <div class="flex-1">
+                    <span class="font-medium" x-text="s.name"></span>
+                    <span x-show="s.streak >= 2" class="ml-2 text-xs text-amber-400 font-semibold" x-text="'🔥 ' + s.streak"></span>
+                  </div>
                   <div class="text-right">
                     <div class="text-sm font-bold" x-text="s.wins + 'W / ' + s.losses + 'L'"></div>
                     <div class="text-xs text-emerald-400" x-text="s.winPct + '%'"></div>
@@ -356,7 +359,7 @@
         <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
 
           <!-- Fecha y modo -->
-          <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center justify-between mb-1">
             <span class="text-xs text-gray-500" x-text="formatDate(m.played_at)"></span>
             <span
               :class="m.mode === '1v1' ? 'bg-blue-900/50 text-blue-300' : 'bg-purple-900/50 text-purple-300'"
@@ -795,13 +798,24 @@
       },
 
       computeIndividualStats(matches) {
+        // matches vienen newest-first, así que la racha se cuenta desde el primero que aparece
         const map = {};
+        const streakDone = {};
         for (const m of matches) {
           for (const mp of m.match_players) {
             const pid = mp.player_id;
-            if (!map[pid]) map[pid] = { player_id: pid, name: mp.players.name, wins: 0, losses: 0, total: 0 };
+            if (!map[pid]) {
+              map[pid] = { player_id: pid, name: mp.players.name, wins: 0, losses: 0, total: 0, streak: 0 };
+              streakDone[pid] = false;
+            }
             map[pid].total++;
-            mp.is_winner ? map[pid].wins++ : map[pid].losses++;
+            if (mp.is_winner) {
+              map[pid].wins++;
+              if (!streakDone[pid]) map[pid].streak++;
+            } else {
+              map[pid].losses++;
+              streakDone[pid] = true;
+            }
           }
         }
         this.individualStats = Object.values(map).map(s => ({

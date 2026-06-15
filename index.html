@@ -342,6 +342,82 @@
           </tbody>
         </table>
       </div>
+
+      <!-- Head to head -->
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-4">
+        <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wide">Cara a cara</h2>
+
+        <div class="grid grid-cols-2 gap-2">
+          <select x-model="h2h.player1" class="input" style="background-image: url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22><path fill=%22%239ca3af%22 d=%22M4 6l4 4 4-4%22 stroke=%22%239ca3af%22 stroke-width=%221.5%22 fill=%22none%22/></svg>'); background-repeat: no-repeat; background-position: right 0.5rem center; background-size: 1rem; padding-right: 2rem;">
+            <option value="">Jugador 1</option>
+            <template x-for="p in players" :key="'h1-'+p.id">
+              <option :value="p.id" :disabled="p.id === h2h.player2" x-text="p.name"></option>
+            </template>
+          </select>
+          <select x-model="h2h.player2" class="input" style="background-image: url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22><path fill=%22%229ca3af%22 d=%22M4 6l4 4 4-4%22 stroke=%22%239ca3af%22 stroke-width=%221.5%22 fill=%22none%22/></svg>'); background-repeat: no-repeat; background-position: right 0.5rem center; background-size: 1rem; padding-right: 2rem;">
+            <option value="">Jugador 2</option>
+            <template x-for="p in players" :key="'h2-'+p.id">
+              <option :value="p.id" :disabled="p.id === h2h.player1" x-text="p.name"></option>
+            </template>
+          </select>
+        </div>
+
+        <!-- Sin selección -->
+        <p x-show="!h2h.player1 || !h2h.player2" class="text-gray-500 text-sm text-center py-2">
+          Seleccioná dos jugadores para ver el historial.
+        </p>
+
+        <!-- Sin partidos -->
+        <p x-show="h2hStats && h2hStats.total === 0" class="text-gray-500 text-sm text-center py-2">
+          No hay partidos 1v1 entre estos jugadores en esta temporada.
+        </p>
+
+        <!-- Resultado -->
+        <template x-if="h2hStats && h2hStats.total > 0">
+          <div class="space-y-4">
+
+            <!-- Marcador -->
+            <div class="flex items-center gap-3">
+              <div class="flex-1 text-center">
+                <div class="font-semibold text-gray-200" x-text="h2hStats.p1name"></div>
+                <div class="text-4xl font-bold mt-1"
+                  :class="h2hStats.p1wins > h2hStats.p2wins ? 'text-emerald-400' : 'text-gray-400'"
+                  x-text="h2hStats.p1wins"></div>
+              </div>
+              <div class="text-gray-600 font-bold text-lg shrink-0">vs</div>
+              <div class="flex-1 text-center">
+                <div class="font-semibold text-gray-200" x-text="h2hStats.p2name"></div>
+                <div class="text-4xl font-bold mt-1"
+                  :class="h2hStats.p2wins > h2hStats.p1wins ? 'text-emerald-400' : 'text-gray-400'"
+                  x-text="h2hStats.p2wins"></div>
+              </div>
+            </div>
+
+            <div class="text-center text-xs text-gray-500" x-text="h2hStats.total + ' partido' + (h2hStats.total !== 1 ? 's' : '')"></div>
+
+            <!-- Barra de dominio -->
+            <div class="h-2 rounded-full bg-gray-700 overflow-hidden flex">
+              <div class="bg-emerald-500 transition-all duration-500"
+                :style="'width:' + Math.round(h2hStats.p1wins / h2hStats.total * 100) + '%'"></div>
+              <div class="bg-purple-500 transition-all duration-500"
+                :style="'width:' + Math.round(h2hStats.p2wins / h2hStats.total * 100) + '%'"></div>
+            </div>
+
+            <!-- Historial de partidos -->
+            <div class="flex gap-1 flex-wrap">
+              <template x-for="(h, i) in h2hStats.history" :key="i">
+                <span
+                  :class="h.winner === h2h.player1 ? 'bg-emerald-700 text-emerald-200' : 'bg-purple-800 text-purple-200'"
+                  class="text-xs px-2 py-0.5 rounded font-semibold"
+                  :title="formatDate(h.date) + ' · ' + h.mode"
+                  x-text="(h.winner === h2h.player1 ? h2hStats.p1name[0] : h2hStats.p2name[0]) + ' ' + h.mode">
+                </span>
+              </template>
+            </div>
+
+          </div>
+        </template>
+      </div>
     </div>
 
     <!-- ══════════════════════════════ PARTIDOS ══════════════════════════════ -->
@@ -718,6 +794,31 @@
       newSeasonName: '',
       newPlayerName: '',
       playerError: '',
+
+      // Head to head
+      h2h: { player1: '', player2: '' },
+
+      get h2hStats() {
+        if (!this.h2h.player1 || !this.h2h.player2 || this.h2h.player1 === this.h2h.player2) return null;
+        const p1 = this.h2h.player1, p2 = this.h2h.player2;
+        // Incluye 1v1 y 2v2: solo cuando estuvieron en equipos opuestos
+        const matches = this.seasonMatches.filter(m => {
+          const mp1 = m.match_players.find(mp => mp.player_id === p1);
+          const mp2 = m.match_players.find(mp => mp.player_id === p2);
+          return mp1 && mp2 && mp1.team !== mp2.team;
+        });
+        if (matches.length === 0) return { total: 0 };
+        let p1wins = 0, p2wins = 0;
+        const history = [];
+        for (const m of matches) {
+          const mp1 = m.match_players.find(mp => mp.player_id === p1);
+          if (mp1.is_winner) p1wins++; else p2wins++;
+          history.push({ date: m.played_at, winner: mp1.is_winner ? p1 : p2, mode: m.mode });
+        }
+        const p1name = this.players.find(p => p.id === p1)?.name ?? '';
+        const p2name = this.players.find(p => p.id === p2)?.name ?? '';
+        return { total: matches.length, p1wins, p2wins, p1name, p2name, history };
+      },
 
       // Partidos en curso
       incompleteMatches: [],
